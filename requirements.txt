@@ -1,0 +1,11 @@
+# 运行此项目推荐的 Python 依赖（在项目虚拟环境中安装）
+# 使用：python -m pip install -r requirements.txt
+
+pandas==3.0.3
+numpy==2.4.6
+openpyxl==3.1.5
+pypdf==6.12.0
+python-dateutil==2.9.0.post0
+tzdata==2026.2
+six==1.17.0
+et-xmlfile==2.0.0
