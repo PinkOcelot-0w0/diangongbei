@@ -22,7 +22,7 @@ SIZE_OPTIONS = [
 
 S2_LEVELS = [1.00, 0.93, 0.85, 0.72, 0.60]
 MAX_SELECTED_SITES = 5
-TOP_CANDIDATE_SITES = 6
+TOP_CANDIDATE_SITES: int | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,39 @@ def distance_satisfaction(distance: float) -> float:
     if distance <= 1000:
         return 0.60
     return 0.0
+
+
+def select_candidate_sites(
+    distance_matrix: pd.DataFrame,
+    community_population: pd.DataFrame,
+    limit: int | None = TOP_CANDIDATE_SITES,
+) -> list[str]:
+    """
+    按覆盖人口排序选择候选站点。
+
+    输入：距离矩阵、小区人口表和可选候选数量上限。
+    输出：候选站点列表；默认不截断，完整返回全部站点。
+    异常：人口表缺少小区或老人数量列时抛出 KeyError。
+    对应需求：REQ-002 问题二服务站选址与规模优化。
+    文档：docs/requirements_traceability.md#req-002-问题二服务站选址与规模优化。
+    """
+    sites = list(distance_matrix.index)
+    population_column = "60岁以上人口" if "60岁以上人口" in community_population.columns else "60+"
+    ranked_sites = sorted(
+        sites,
+        key=lambda site: (
+            sum(
+                float(community_population.loc[community_population["小区"] == community, population_column].iloc[0])
+                for community in sites
+                if distance_matrix.loc[community, site] <= 1000
+            ),
+            -sites.index(site),
+        ),
+        reverse=True,
+    )
+    if limit is None or limit <= 0:
+        return ranked_sites
+    return ranked_sites[:limit]
 
 
 def build_station_plan(site: str, size_name: str) -> StationPlan:
@@ -313,6 +346,7 @@ def evaluate_plan(
                         "年度利润(元)": round(station_annual_profit[site], 2),
                     }
                 )
+            station_rows = pd.DataFrame(station_result_rows)
 
             return {
                 "coverage": coverage,
@@ -322,8 +356,9 @@ def evaluate_plan(
                 "station_s2": station_s2,
                 "station_utilization": station_utilization,
                 "station_profit": station_annual_profit,
-                "station_rows": pd.DataFrame(station_result_rows),
+                "station_rows": station_rows,
                 "community_rows": pd.DataFrame(community_result_rows),
+                "capacity_check": build_capacity_check(station_rows),
                 "selected_sites": selected_sites,
                 "size_names": size_names,
                 "station_plans": station_plans,
@@ -342,20 +377,7 @@ def search_best_plan(
     service_costs: dict[str, float],
 ) -> dict[str, object]:
     """穷举所有站点组合和规模组合，并按“覆盖率 -> 满意度 -> 利润”排序。"""
-    sites = list(distance_matrix.index)
-    ranked_sites = sorted(
-        sites,
-        key=lambda site: (
-            sum(
-                float(community_population.loc[community_population["小区"] == community, "60岁以上人口"].iloc[0])
-                for community in sites
-                if distance_matrix.loc[community, site] <= 1000
-            ),
-            -sites.index(site),
-        ),
-        reverse=True,
-    )
-    candidate_sites = ranked_sites[:TOP_CANDIDATE_SITES]
+    candidate_sites = select_candidate_sites(distance_matrix, community_population)
     print("用于穷举的候选站点：", candidate_sites)
     best_result: dict[str, object] | None = None
 
@@ -401,6 +423,28 @@ def search_best_plan(
     return best_result
 
 
+def build_capacity_check(station_rows: pd.DataFrame) -> pd.DataFrame:
+    """
+    根据站点结果生成软容量核查表。
+
+    输入：`best_station_plan.csv` 对应的站点结果表。
+    输出：含估计日有效服务人次和是否过载字段的 DataFrame。
+    异常：缺少站点、规模、日容量或利用率字段时抛出 KeyError。
+    对应需求：REQ-002 问题二服务站选址与规模优化。
+    文档：docs/requirements_traceability.md#req-002-问题二服务站选址与规模优化。
+    """
+    required_columns = ["站点", "规模", "日容量", "利用率"]
+    missing = [column for column in required_columns if column not in station_rows.columns]
+    if missing:
+        raise KeyError(f"容量核查缺少字段：{', '.join(missing)}")
+
+    check = station_rows.copy()
+    check["估计日有效服务人次"] = (check["日容量"].astype(float) * check["利用率"].astype(float)).round(2)
+    check["是否过载"] = check["利用率"].astype(float).map(lambda value: "是" if value > 1.0 else "否")
+    check["容量模型说明"] = "软容量核查：过载不剔除方案，但会降低响应满意度并提示扩容风险"
+    return check[["站点", "规模", "日容量", "估计日有效服务人次", "利用率", "是否过载", "容量模型说明"]]
+
+
 def main() -> None:
     communities, _, _ = q1_solution.load_community_data()
     demand_rates, service_prices, _ = q1_solution.load_service_data()
@@ -427,6 +471,7 @@ def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
     best["station_rows"].to_csv(OUTPUT_DIR / "best_station_plan.csv", index=False, encoding="utf-8-sig")
     best["community_rows"].to_csv(OUTPUT_DIR / "best_community_assignment.csv", index=False, encoding="utf-8-sig")
+    best["capacity_check"].to_csv(OUTPUT_DIR / "capacity_check.csv", index=False, encoding="utf-8-sig")
 
     print("最优方案：")
     print(f"站点数量：{len(best['selected_sites'])}")

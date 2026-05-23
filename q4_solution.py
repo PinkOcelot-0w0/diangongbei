@@ -35,6 +35,9 @@ CAP_PER_SIZE = {"小型": 1100.0, "中型": 2000.0, "大型": 3000.0}
 # 利润率上限（百分比），如果解超出该值则视为不可行
 PROFIT_RATE_LIMIT = 8.0
 
+# 站点年度利润下限，问题三/四要求保本微利，因此不接受负利润方案
+MIN_PROFIT = 0.0
+
 # 日固定成本近似（可用附件3 精确替换）
 SIZE_TO_DAILY_FIXED = {"小型": 2000.0, "中型": 3200.0, "大型": 4400.0}
 # ==================================================
@@ -104,6 +107,19 @@ def price_satisfaction(baseline: float, net_price: float) -> float:
     if ratio <= 0.20:
         return 0.75
     return 0.60
+
+
+def is_station_financially_feasible(annual_profit: float, profit_rate: float) -> bool:
+    """
+    判断站点定价方案是否满足财务约束。
+
+    输入：站点年度利润和利润率百分比。
+    输出：同时满足利润非负和利润率不超过上限时返回 True。
+    异常：无。
+    对应需求：REQ-004 问题四灵敏度和统一定价方案。
+    文档：docs/requirements_traceability.md#req-004-问题四灵敏度分析与方案比较。
+    """
+    return annual_profit >= MIN_PROFIT and profit_rate <= PROFIT_RATE_LIMIT
 
 
 def evaluate_markups(station_df, assign_df, theo, baseline_prices, service_costs):
@@ -207,8 +223,9 @@ def evaluate_markups(station_df, assign_df, theo, baseline_prices, service_costs
             annual_operation_cost = daily_fixed * 365.0 + 10000.0 / 20.0 * (18.0 if station_info[site]["规模"] == "小型" else 32.0 if station_info[site]["规模"] == "中型" else 45.0)
 
             service_profit = annual_revenue - annual_cost
-            profit_rate = (service_profit + annual_subsidy - annual_operation_cost) / annual_operation_cost * 100.0
-            station_annual_profit[site] = service_profit + annual_subsidy - annual_operation_cost
+            annual_profit = service_profit + annual_subsidy - annual_operation_cost
+            profit_rate = annual_profit / annual_operation_cost * 100.0
+            station_annual_profit[site] = annual_profit
 
             station_satisfaction[site] = (
                 sum(community_satisfaction.get(c, 0.0) * theo_total.get(c, 0.0) for c in assigned)
@@ -217,7 +234,7 @@ def evaluate_markups(station_df, assign_df, theo, baseline_prices, service_costs
                 else 0.0
             )
 
-            if profit_rate > PROFIT_RATE_LIMIT:
+            if not is_station_financially_feasible(annual_profit=annual_profit, profit_rate=profit_rate):
                 feasible = False
                 break
 
@@ -260,6 +277,21 @@ def main():
 
     best = evaluate_markups(station_df, assign_df, theo, baseline_prices, service_costs)
     if best is None:
+        pd.DataFrame(columns=["站点", "统一markup", "站点满意度", "年利润(元)"]).to_csv(
+            OUTPUT_DIR / "best_pricing_plan.csv",
+            index=False,
+            encoding="utf-8-sig",
+        )
+        pd.DataFrame(columns=["站点", "服务", "基准价", "统一markup", "标价"]).to_csv(
+            OUTPUT_DIR / "best_pricing_per_service.csv",
+            index=False,
+            encoding="utf-8-sig",
+        )
+        (OUTPUT_DIR / "infeasibility_report.txt").write_text(
+            "未找到同时满足站点利润非负和利润率不超过 8% 的统一 markup 方案。\n"
+            "建议扩大 markup 候选集、提高补贴上限、调整站点规模，或改用问题三的分服务差异化定价。\n",
+            encoding="utf-8",
+        )
         print("未找到满足条件的方案（请调整参数）。")
         return
 
