@@ -62,8 +62,9 @@ def forecast_five_years(
     communities: pd.DataFrame,
     self_to_semi: float,
     semi_to_disabled: float,
-) -> pd.DataFrame:
+) -> list[pd.DataFrame]:
     result = communities.copy()
+    yearly_results: list[pd.DataFrame] = []
     for _ in range(5):
         # 每年先扣除自然死亡，再叠加 60+ 新增人口；
         # 新增人口按题意计入自理老人。
@@ -78,8 +79,9 @@ def forecast_five_years(
             {"自理": next_self, "半失能": next_semi, "失能": next_disabled}
         )
         result["60+"] = result[["自理", "半失能", "失能"]].sum(axis=1)
+        yearly_results.append(result.copy())
 
-    return result
+    return yearly_results
 
 
 def build_service_tables(
@@ -138,7 +140,8 @@ def main() -> None:
     communities, self_to_semi, semi_to_disabled = load_community_data()
     demand_rates, service_prices, cap_ratios = load_service_data()
 
-    forecast = forecast_five_years(communities, self_to_semi, semi_to_disabled)
+    yearly_forecasts = forecast_five_years(communities, self_to_semi, semi_to_disabled)
+    forecast = yearly_forecasts[-1]
     theoretical, actual = build_service_tables(
         forecast=forecast,
         communities=communities,
@@ -151,12 +154,20 @@ def main() -> None:
     forecast_out = forecast[["小区", "自理", "半失能", "失能", "60+"]].copy()
     forecast_out[["自理", "半失能", "失能", "60+"]] = forecast_out[["自理", "半失能", "失能", "60+"]].round(2)
     forecast_out.to_csv(OUTPUT_DIR / "year5_population.csv", index=False, encoding="utf-8-sig")
+    for year, year_forecast in enumerate(yearly_forecasts, start=1):
+        year_out = year_forecast[["小区", "自理", "半失能", "失能", "60+"]].copy()
+        year_out[["自理", "半失能", "失能", "60+"]] = year_out[["自理", "半失能", "失能", "60+"]].round(2)
+        year_out.to_csv(OUTPUT_DIR / f"year{year}_population.csv", index=False, encoding="utf-8-sig")
     theoretical.to_csv(OUTPUT_DIR / "year5_theoretical_demand.csv", index=False, encoding="utf-8-sig")
     actual.to_csv(OUTPUT_DIR / "year5_actual_demand.csv", index=False, encoding="utf-8-sig")
 
-    print("第5年末老人数量预测：")
-    print(forecast_out.to_string(index=False))
-    print()
+    for year, year_forecast in enumerate(yearly_forecasts, start=1):
+        year_out = year_forecast[["小区", "自理", "半失能", "失能", "60+"]].copy()
+        year_out[["自理", "半失能", "失能", "60+"]] = year_out[["自理", "半失能", "失能", "60+"]].round(2)
+        print(f"第{year}年末老人数量预测：")
+        print(year_out.to_string(index=False))
+        print()
+
     print("第5年末理论月需求（前20行）：")
     print(theoretical.head(20).to_string(index=False))
     print()

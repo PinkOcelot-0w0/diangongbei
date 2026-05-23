@@ -50,6 +50,9 @@ def load_year5_demand() -> tuple[pd.DataFrame, pd.DataFrame]:
     communities, self_to_semi, semi_to_disabled = q1_solution.load_community_data()
     demand_rates, service_prices, cap_ratios = q1_solution.load_service_data()
     forecast = q1_solution.forecast_five_years(communities, self_to_semi, semi_to_disabled)
+    # 兼容 q1_solution 中 forecast_five_years 返回 list[pd.DataFrame] 的情况，取最后一年
+    if isinstance(forecast, list):
+        forecast = forecast[-1]
     _, actual = q1_solution.build_service_tables(
         forecast=forecast,
         communities=communities,
