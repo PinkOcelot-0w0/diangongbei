@@ -25,8 +25,8 @@ def load_community_data() -> tuple[pd.DataFrame, float, float]:
     transition_sheet = workbook[workbook.sheetnames[1]]
     # 这里直接读取题目给出的转移概率：
     # 自理老人每年有 4.5% 转移为半失能，半失能老人每年有 10% 转移为失能。
-    self_to_semi = float(transition_sheet["B3"].value)
-    semi_to_disabled = float(transition_sheet["B4"].value)
+    self_to_semi = 0.045
+    semi_to_disabled = 0.1
     return communities, self_to_semi, semi_to_disabled
 
 
