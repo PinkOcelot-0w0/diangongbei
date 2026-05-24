@@ -10,11 +10,11 @@
 
 | 符号 | 类型 | 跳转链接 | 说明 |
 |---|---|---|---|
-| `read_probability_cell` | function | [q1_solution.py:L18-L33](../q1_solution.py#L18-L33) | 校验年度转移概率 |
-| `load_community_data` | function | [q1_solution.py:L36-L57](../q1_solution.py#L36-L57) | 读取人口结构和转移概率 |
-| `forecast_five_years` | function | [q1_solution.py:L88-L111](../q1_solution.py#L88-L111) | 预测五年老人结构 |
-| `build_service_tables` | function | [q1_solution.py:L114-L163](../q1_solution.py#L114-L163) | 计算理论和实际需求 |
-| `main` | function | [q1_solution.py:L166-L202](../q1_solution.py#L166-L202) | 输出 q1 CSV |
+| `read_probability_cell` | function | [q1_solution.py:L14-L29](../q1_solution.py#L14-L29) | 校验年度转移概率 |
+| `load_community_data` | function | [q1_solution.py:L32-L53](../q1_solution.py#L32-L53) | 读取人口结构和转移概率 |
+| `forecast_five_years` | function | [q1_solution.py:L84-L107](../q1_solution.py#L84-L107) | 预测五年老人结构 |
+| `build_service_tables` | function | [q1_solution.py:L110-L159](../q1_solution.py#L110-L159) | 计算理论和实际需求 |
+| `main` | function | [q1_solution.py:L162-L202](../q1_solution.py#L162-L202) | 输出 q1 CSV |
 
 ## q2_solution.py
 

@@ -13,7 +13,7 @@ python q4_solution.py
 
 | 命令 | 说明 | 入口链接 | 主要输出 |
 |---|---|---|---|
-| `python q1_solution.py` | 预测第 1 年至第 5 年人口和第 5 年需求 | [q1_solution.py:L166-L202](../q1_solution.py#L166-L202) | `q1_output/*.csv` |
+| `python q1_solution.py` | 预测第 1 年至第 5 年人口和第 5 年需求 | [q1_solution.py:L162-L202](../q1_solution.py#L162-L202) | `q1_output/*.csv` |
 | `python q2_solution.py` | 搜索服务站位置、规模和小区分配 | [q2_solution.py:L448-L486](../q2_solution.py#L448-L486) | `q2_output/*.csv` |
 | `python q3_solution.py` | 搜索分站分服务定价方案 | [q3_solution.py:L362-L412](../q3_solution.py#L362-L412) | `q3_output/*.csv` |
 | `python q4_solution.py` | 搜索统一 markup 方案 | [q4_solution.py:L271-L322](../q4_solution.py#L271-L322) | `q4_output/*.csv` |

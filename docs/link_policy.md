@@ -5,7 +5,7 @@
 用于本地 Markdown 文档：
 
 ```md
-[函数名 q1_solution.py:L36-L57](../q1_solution.py#L36-L57)
+[函数名 q1_solution.py:L32-L53](../q1_solution.py#L32-L53)
 ```
 
 ## 根目录文档链接
@@ -13,7 +13,7 @@
 根目录 `README.md` 使用：
 
 ```md
-[q1_solution.py:L36-L57](q1_solution.py#L36-L57)
+[q1_solution.py:L32-L53](q1_solution.py#L32-L53)
 ```
 
 ## TODO-LINES

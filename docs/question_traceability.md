@@ -14,7 +14,7 @@
 
 | 类型 | 说明 | 跳转链接 |
 |---|---|---|
-| q1 | 转移概率从附件读取 | [q1_solution.py:L18-L57](../q1_solution.py#L18-L57) |
+| q1 | 转移概率从附件读取 | [q1_solution.py:L14-L53](../q1_solution.py#L14-L53) |
 | q2 | 候选站点完整枚举 | [q2_solution.py:L99-L129](../q2_solution.py#L99-L129) |
 | q2 | 容量核查输出 | [q2_solution.py:L426-L445](../q2_solution.py#L426-L445) |
 | q4 | 利润非负约束 | [q4_solution.py:L112-L122](../q4_solution.py#L112-L122) |

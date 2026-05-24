@@ -15,7 +15,7 @@
 |---|---|
 | 错误现象 | `ValueError: 自理转半失能概率 必须...` |
 | 常见原因 | 附件 1 第二个工作表 B3/B4 为空、非数值或不在 0 到 1 |
-| 定位文件 | [q1_solution.py:L18-L57](../q1_solution.py#L18-L57) |
+| 定位文件 | [q1_solution.py:L14-L53](../q1_solution.py#L14-L53) |
 | 验证命令 | `python q1_solution.py` |
 
 ## q2 容量过载

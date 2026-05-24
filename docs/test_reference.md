@@ -6,7 +6,7 @@
 |---|---|
 | 对应需求 | REQ-001 |
 | 测试函数 | [tests/test_project_improvements.py:L18-L45](../tests/test_project_improvements.py#L18-L45) |
-| 被测函数 | [q1_solution.py:L18-L57](../q1_solution.py#L18-L57) |
+| 被测函数 | [q1_solution.py:L14-L53](../q1_solution.py#L14-L53) |
 
 运行命令：
 

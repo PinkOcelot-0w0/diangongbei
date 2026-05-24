@@ -10,10 +10,10 @@
 
 | 类型 | 说明 | 跳转链接 |
 |---|---|---|
-| 数据读取 | 小区人口和转移概率 | [q1_solution.py:L36-L57](../q1_solution.py#L36-L57) |
-| 概率校验 | 年度状态转移概率校验 | [q1_solution.py:L18-L33](../q1_solution.py#L18-L33) |
-| 预测模型 | 五年状态递推 | [q1_solution.py:L88-L111](../q1_solution.py#L88-L111) |
-| 需求模型 | 理论需求与消费约束需求 | [q1_solution.py:L114-L163](../q1_solution.py#L114-L163) |
+| 数据读取 | 小区人口和转移概率 | [q1_solution.py:L32-L53](../q1_solution.py#L32-L53) |
+| 概率校验 | 年度状态转移概率校验 | [q1_solution.py:L14-L29](../q1_solution.py#L14-L29) |
+| 预测模型 | 五年状态递推 | [q1_solution.py:L84-L107](../q1_solution.py#L84-L107) |
+| 需求模型 | 理论需求与消费约束需求 | [q1_solution.py:L110-L159](../q1_solution.py#L110-L159) |
 | 测试 | 转移概率来自工作簿 | [tests/test_project_improvements.py:L18-L45](../tests/test_project_improvements.py#L18-L45) |
 
 ### 验证命令
