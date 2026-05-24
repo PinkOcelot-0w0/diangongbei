@@ -1,293 +1,342 @@
 from __future__ import annotations
 
-from itertools import product
+from contextlib import contextmanager
+from itertools import combinations, product
 from pathlib import Path
-import argparse
+import json
 
 import pandas as pd
-from openpyxl import load_workbook
 
 import q1_solution
-
-"""
-q4_solution.py
-
-用途：基于 q2/q1 输出，重新搜索最优统一 markup 定价方案。
-通过顶部常量可以快速修改：MARKUP_OPTIONS、CAP_PER_SIZE、PROFIT_RATE_LIMIT。
-运行后输出到 `q4_output/`，包含站点级方案和按服务标价表。
-
-使用：直接运行 `python q4_solution.py`。
-可选参数：--config 用于指定 JSON 配置文件（覆盖顶部常量）。
-"""
+import q2_solution
+import q3_solution
 
 BASE_DIR = Path(__file__).resolve().parent
-Q2_DIR = BASE_DIR / "q2_output"
-Q1_DIR = BASE_DIR / "q1_output"
-OUTPUT_DIR = BASE_DIR / "q4_output"
+OUT_DIR = BASE_DIR / "q4_output"
+OUT_DIR.mkdir(exist_ok=True)
 
-# ========== 可修改参数（第四问变动处） ==========
-# 搜索的统一 markup 候选集（例如允许更大折扣/更高提价）
-MARKUP_OPTIONS = [-0.3, -0.2, -0.1, 0.0, 0.05, 0.10, 0.15, 0.20, 0.30]
-
-# 每站每日补贴上限（可按题意调整）
-CAP_PER_SIZE = {"小型": 1100.0, "中型": 2000.0, "大型": 3000.0}
-
-# 利润率上限（百分比），如果解超出该值则视为不可行
-PROFIT_RATE_LIMIT = 8.0
-
-# 日固定成本近似（可用附件3 精确替换）
-SIZE_TO_DAILY_FIXED = {"小型": 2000.0, "中型": 3200.0, "大型": 4400.0}
-# ==================================================
-
-
-def load_q2_results():
-    station_df = pd.read_csv(Q2_DIR / "best_station_plan.csv", encoding="utf-8-sig")
-    assign_df = pd.read_csv(Q2_DIR / "best_community_assignment.csv", encoding="utf-8-sig")
-    return station_df, assign_df
-
-
-def load_q1_theoretical():
-    theo = pd.read_csv(Q1_DIR / "year5_theoretical_demand.csv", encoding="utf-8-sig")
-    return theo
-
-
-def load_service_baseline_and_costs():
-    wb = load_workbook(BASE_DIR / "附件2：服务需求数据.xlsx", data_only=True)
-    revenue = wb[wb.sheetnames[1]]
-    prices = {}
-    costs = {}
-    for r in range(3, 9):
-        svc = revenue.cell(r, 1).value
-        val = revenue.cell(r, 2).value
-        cost = revenue.cell(r, 3).value
-        try:
-            prices[svc] = float(val)
-        except Exception:
-            prices[svc] = 0.0
-        try:
-            costs[svc] = float(cost)
-        except Exception:
-            costs[svc] = 0.0
-    return prices, costs
+SCENARIOS = {
+    "baseline": {
+        "growth_rate": 0.07,
+        "self_to_semi": 0.045,
+        "semi_to_disabled": 0.10,
+        "daily_cost_multiplier": 1.0,
+        "budget_wan": 120.0,
+    },
+    "scenario_growth": {
+        "growth_rate": 0.08,
+        "self_to_semi": 0.055,
+        "semi_to_disabled": 0.095,
+        "daily_cost_multiplier": 1.0,
+        "budget_wan": 120.0,
+    },
+    "scenario_cost": {
+        "growth_rate": 0.07,
+        "self_to_semi": 0.045,
+        "semi_to_disabled": 0.10,
+        "daily_cost_multiplier": 1.2,
+        "budget_wan": 120.0,
+    },
+    "scenario_budget": {
+        "growth_rate": 0.07,
+        "self_to_semi": 0.045,
+        "semi_to_disabled": 0.10,
+        "daily_cost_multiplier": 1.0,
+        "budget_wan": 140.0,
+    },
+}
 
 
-def distance_satisfaction(distance: float) -> float:
-    if distance <= 300:
-        return 1.0
-    if distance <= 500:
-        return 0.90
-    if distance <= 650:
-        return 0.75
-    if distance <= 1000:
-        return 0.60
-    return 0.0
+@contextmanager
+def patched_attributes(*pairs: tuple[object, str, object]):
+    originals = []
+    try:
+        for obj, name, value in pairs:
+            originals.append((obj, name, getattr(obj, name)))
+            setattr(obj, name, value)
+        yield
+    finally:
+        for obj, name, original in reversed(originals):
+            setattr(obj, name, original)
 
 
-def tier_from_utilization(util: float) -> float:
-    if util <= 0.60:
-        return 1.00
-    if util <= 0.75:
-        return 0.93
-    if util <= 0.85:
-        return 0.85
-    if util <= 0.95:
-        return 0.72
-    return 0.60
+def forecast_years(communities: pd.DataFrame, growth_rate: float, self_to_semi: float, semi_to_disabled: float, years: int = 5, death_rate: float = 0.05) -> list[pd.DataFrame]:
+    result = communities.copy()
+    yearly_results: list[pd.DataFrame] = []
+    for _ in range(years):
+        new_60_plus = growth_rate * result["60+"]
+        next_self = (1 - death_rate) * result["自理"] * (1 - self_to_semi) + new_60_plus
+        next_semi = (1 - death_rate) * (result["自理"] * self_to_semi + result["半失能"] * (1 - semi_to_disabled))
+        next_disabled = (1 - death_rate) * (result["半失能"] * semi_to_disabled + result["失能"])
+        result = result.copy()
+        result[["自理", "半失能", "失能"]] = pd.DataFrame({"自理": next_self, "半失能": next_semi, "失能": next_disabled})
+        result["60+"] = result[["自理", "半失能", "失能"]].sum(axis=1)
+        yearly_results.append(result.copy())
+    return yearly_results
 
 
-def price_satisfaction(baseline: float, net_price: float) -> float:
-    if net_price <= baseline:
-        return 1.00
-    ratio = (net_price - baseline) / baseline
-    if ratio <= 0.10:
-        return 0.90
-    if ratio <= 0.20:
-        return 0.75
-    return 0.60
+def build_forecast_inputs(growth_rate: float, self_to_semi: float, semi_to_disabled: float) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    communities, _, _ = q1_solution.load_community_data()
+    demand_rates, service_prices, cap_ratios = q1_solution.load_service_data()
+    forecast5 = forecast_years(communities, growth_rate, self_to_semi, semi_to_disabled)[-1]
+    theoretical, actual = q1_solution.build_service_tables(
+        forecast=forecast5,
+        communities=communities,
+        demand_rates=demand_rates,
+        service_prices=service_prices,
+        cap_ratios=cap_ratios,
+    )
+    demand_total = actual.groupby(["小区", "服务项目"], as_index=False)["实际月均需求次数"].sum()
+    return forecast5, theoretical, actual, demand_total
 
 
-def evaluate_markups(station_df, assign_df, theo, baseline_prices, service_costs):
-    station_info = {}
-    for _, row in station_df.iterrows():
-        site = row["站点"]
-        station_info[site] = {
-            "规模": row["规模"],
-            "日容量": float(row["日容量"]),
-            "assigned": []
-        }
+def build_population_table(forecast5: pd.DataFrame) -> pd.DataFrame:
+    community_population = forecast5[["小区", "60+"]].copy()
+    community_population.rename(columns={"60+": "60岁以上人口"}, inplace=True)
+    return community_population
 
-    for _, row in assign_df.iterrows():
-        station = row["分配站点"]
-        if pd.isna(station):
-            continue
-        station_info[station]["assigned"].append(row["小区"]) 
 
-    theo_total = theo.groupby(["小区"]) ["理论月需求次数"].sum().to_dict()
-    theo_service = {}
-    for _, r in theo.iterrows():
-        theo_service.setdefault(r["小区"], {})[r["服务项目"]] = float(r["理论月需求次数"]) 
+def search_station_plan(
+    distance_matrix: pd.DataFrame,
+    community_population: pd.DataFrame,
+    demand_total: pd.DataFrame,
+    baseline_prices: dict[str, float],
+    service_costs: dict[str, float],
+    budget_wan: float,
+) -> list[dict[str, object]]:
+    population_map = {
+        row["小区"]: float(row["60岁以上人口"])
+        for _, row in community_population.iterrows()
+    }
+    sites = list(distance_matrix.index)
+    ranked_sites = sorted(
+        sites,
+        key=lambda site: sum(
+            population_map.get(community, 0.0)
+            for community in population_map
+            if distance_matrix.loc[community, site] <= 1000
+        ),
+        reverse=True,
+    )
+    candidate_sites = ranked_sites[: q2_solution.TOP_CANDIDATE_SITES]
 
-    sites = list(station_info.keys())
-    best = None
+    candidates: list[dict[str, object]] = []
 
-    for markup_choice in product(MARKUP_OPTIONS, repeat=len(sites)):
-        markups = {site: m for site, m in zip(sites, markup_choice)}
-        station_s2 = {site: 0.6 for site in sites}
+    for station_count in range(1, min(q2_solution.MAX_SELECTED_SITES, len(candidate_sites)) + 1):
+        for selected_sites in combinations(candidate_sites, station_count):
+            if min(option[1] for option in q2_solution.SIZE_OPTIONS) * station_count > budget_wan:
+                continue
 
-        # fixed-point iteration
-        for _ in range(12):
-            station_monthly_effective = {site: 0.0 for site in sites}
-            station_monthly_non_emergency = {site: 0.0 for site in sites}
-
-            for site in sites:
-                for comm in station_info[site]["assigned"]:
-                    # distance S1
-                    dist = float(assign_df[assign_df["小区"] == comm]["距离(米)"].iloc[0])
-                    s1 = distance_satisfaction(dist)
-                    s2 = station_s2[site]
-                    svc_dict = theo_service.get(comm, {})
-                    if not svc_dict:
-                        continue
-                    total_units = sum(svc_dict.values())
-                    if total_units <= 0:
-                        continue
-                    avg_baseline = sum(baseline_prices.get(svc, 0.0) * cnt for svc, cnt in svc_dict.items()) / total_units
-                    avg_price = avg_baseline * (1 + markups[site])
-                    s3 = price_satisfaction(avg_baseline, avg_price)
-                    S = 0.2 * s1 + 0.3 * s2 + 0.5 * s3
-                    station_monthly_effective[site] += sum(svc_dict.values()) * S
-                    station_monthly_non_emergency[site] += sum(cnt for svc, cnt in svc_dict.items() if svc != "紧急救助") * S
-
-            new_s2 = {}
-            for site in sites:
-                daily = station_info[site]["日容量"]
-                util = station_monthly_effective[site] / (30.0 * daily) if daily > 0 else 0.0
-                new_s2[site] = tier_from_utilization(util)
-            if new_s2 == station_s2:
-                break
-            station_s2 = new_s2
-
-        # compute profits and check feasibility
-        station_annual_profit = {}
-        station_satisfaction = {}
-        feasible = True
-        for site in sites:
-            assigned = station_info[site]["assigned"]
-            monthly_non_em = 0.0
-            annual_revenue = 0.0
-            annual_cost = 0.0
-            community_satisfaction = {}
-            for comm in assigned:
-                dist = float(assign_df[assign_df["小区"] == comm]["距离(米)"].iloc[0])
-                s1 = distance_satisfaction(dist)
-                s2 = station_s2[site]
-                svc_dict = theo_service.get(comm, {})
-                comm_total = sum(svc_dict.values())
-                if comm_total <= 0:
+            for size_choice in product([option[0] for option in q2_solution.SIZE_OPTIONS], repeat=station_count):
+                size_names = {site: size_name for site, size_name in zip(selected_sites, size_choice)}
+                construction_cost = sum(
+                    next(option[1] for option in q2_solution.SIZE_OPTIONS if option[0] == size_name)
+                    for size_name in size_choice
+                )
+                if construction_cost > budget_wan:
                     continue
-                markup = markups[site]
-                avg_baseline = sum(baseline_prices.get(svc, 0.0) * cnt for svc, cnt in svc_dict.items()) / comm_total
-                avg_price = avg_baseline * (1 + markup)
-                s3 = price_satisfaction(avg_baseline, avg_price)
-                S = 0.2 * s1 + 0.3 * s2 + 0.5 * s3
-                community_satisfaction[comm] = S
-                monthly_non_em += sum(cnt for svc, cnt in svc_dict.items() if svc != "紧急救助") * S
-                for svc, monthly_cnt in svc_dict.items():
-                    eff_monthly = monthly_cnt * S
-                    price_set = baseline_prices.get(svc, 0.0) * (1 + markup)
-                    annual_revenue += eff_monthly * 12.0 * price_set
-                    annual_cost += eff_monthly * 12.0 * service_costs.get(svc, 0.0)
 
-            daily_non_em = monthly_non_em / 30.0 if monthly_non_em > 0 else 0.0
-            cap = CAP_PER_SIZE.get(station_info[site]["规模"], 0.0)
-            per_person_subsidy = min(2.0, cap / daily_non_em) if daily_non_em > 0 else 0.0
-            annual_subsidy = per_person_subsidy * monthly_non_em / 30.0 * 365.0
+                base_result = q2_solution.evaluate_plan(
+                    selected_sites=list(selected_sites),
+                    size_names=size_names,
+                    distance_matrix=distance_matrix,
+                    community_population=community_population,
+                    demand_total=demand_total,
+                    service_prices=baseline_prices,
+                    service_costs=service_costs,
+                )
+                if base_result is None:
+                    continue
+                candidates.append(
+                    {
+                        "coverage": float(base_result["coverage"]),
+                        "avg_satisfaction": float(base_result["avg_satisfaction"]),
+                        "total_profit": float(base_result["total_profit"]),
+                        "base_result": base_result,
+                    }
+                )
 
-            daily_fixed = SIZE_TO_DAILY_FIXED.get(station_info[site]["规模"], 2000.0)
-            annual_operation_cost = daily_fixed * 365.0 + 10000.0 / 20.0 * (18.0 if station_info[site]["规模"] == "小型" else 32.0 if station_info[site]["规模"] == "中型" else 45.0)
+    if not candidates:
+        raise RuntimeError("没有找到满足预算约束的可行方案。")
 
-            service_profit = annual_revenue - annual_cost
-            profit_rate = (service_profit + annual_subsidy - annual_operation_cost) / annual_operation_cost * 100.0
-            station_annual_profit[site] = service_profit + annual_subsidy - annual_operation_cost
+    candidates.sort(
+        key=lambda item: (item["coverage"], item["avg_satisfaction"], item["total_profit"]),
+        reverse=True,
+    )
+    return candidates[:10]
 
-            station_satisfaction[site] = (
-                sum(community_satisfaction.get(c, 0.0) * theo_total.get(c, 0.0) for c in assigned)
-                / sum(theo_total.get(c, 0.0) for c in assigned)
-                if assigned
-                else 0.0
+
+def save_scenario_outputs(name: str, result: dict[str, object]) -> None:
+    scen_dir = OUT_DIR / name
+    scen_dir.mkdir(exist_ok=True)
+    result["base_result"]["station_rows"].to_csv(scen_dir / "best_station_layout.csv", index=False, encoding="utf-8-sig")
+    result["base_result"]["community_rows"].to_csv(scen_dir / "best_community_assignment.csv", index=False, encoding="utf-8-sig")
+    result["station_df"].to_csv(scen_dir / "best_pricing_plan.csv", index=False, encoding="utf-8-sig")
+    result["service_df"].to_csv(scen_dir / "best_pricing_per_service.csv", index=False, encoding="utf-8-sig")
+    result["community_df"].to_csv(scen_dir / "best_community_satisfaction.csv", index=False, encoding="utf-8-sig")
+
+
+def run_scenario(name: str, params: dict[str, float]) -> dict[str, object]:
+    forecast5, theoretical, actual, demand_total = build_forecast_inputs(
+        params["growth_rate"],
+        params["self_to_semi"],
+        params["semi_to_disabled"],
+    )
+    community_population = build_population_table(forecast5)
+    distance_matrix = q2_solution.load_distance_matrix()
+    baseline_prices, service_costs = q3_solution.load_service_baseline_and_costs()
+    size_options = [
+        (size_name, construction_cost, daily_fixed * params["daily_cost_multiplier"], capacity)
+        for size_name, construction_cost, daily_fixed, capacity in q2_solution.SIZE_OPTIONS
+    ]
+    daily_fixed_map = {
+        size_name: daily_fixed * params["daily_cost_multiplier"]
+        for size_name, daily_fixed in q3_solution.SIZE_TO_DAILY_FIXED.items()
+    }
+
+    with patched_attributes(
+        (q2_solution, "SIZE_OPTIONS", size_options),
+        (q3_solution, "SIZE_TO_DAILY_FIXED", daily_fixed_map),
+    ):
+        candidates = search_station_plan(
+            distance_matrix=distance_matrix,
+            community_population=community_population,
+            demand_total=demand_total,
+            baseline_prices=baseline_prices,
+            service_costs=service_costs,
+            budget_wan=params["budget_wan"],
+        )
+
+        result = None
+        for candidate in candidates:
+            base_result = candidate["base_result"]
+            station_info, _ = q3_solution.build_station_inputs(
+                base_result["station_rows"],
+                base_result["community_rows"],
+                forecast5[["小区", "60+"]].copy(),
+                actual,
             )
+            q3_solution.attach_station_distances(station_info, base_result["community_rows"])
 
-            if profit_rate > PROFIT_RATE_LIMIT:
-                feasible = False
+            station_rows: list[dict[str, object]] = []
+            service_rows: list[dict[str, object]] = []
+            community_rows: list[dict[str, object]] = []
+            total_profit = 0.0
+            total_subsidy = 0.0
+            weighted_satisfaction_sum = 0.0
+            weighted_population_sum = 0.0
+            min_profit_rate = None
+            max_profit_rate = None
+            feasible = True
+
+            for site, info in station_info.items():
+                pricing = q3_solution.evaluate_station_prices(site, info, baseline_prices, service_costs)
+                if pricing is None:
+                    feasible = False
+                    break
+
+                station_rows.append(
+                    {
+                        "站点": site,
+                        "规模": pricing["规模"],
+                        "助餐": pricing["service_prices"].get("助餐", 0.0),
+                        "日间照料": pricing["service_prices"].get("日间照料", 0.0),
+                        "上门护理": pricing["service_prices"].get("上门护理", 0.0),
+                        "康复理疗": pricing["service_prices"].get("康复理疗", 0.0),
+                        "助浴": pricing["service_prices"].get("助浴", 0.0),
+                        "紧急救助": pricing["service_prices"].get("紧急救助", 0.0),
+                        "响应满意度S2": round(float(pricing["response_s2"]), 4),
+                        "平均满意度": round(float(pricing["avg_satisfaction"]), 4),
+                        "政府补贴(元)": round(float(pricing["annual_subsidy"]), 2),
+                        "年运营成本(元)": round(float(pricing["annual_operation_cost"]), 2),
+                        "年度利润(元)": round(float(pricing["station_profit"]), 2),
+                        "利润率(%)": round(float(pricing["profit_rate"]), 4),
+                    }
+                )
+                service_rows.extend(pricing["service_rows"])
+                community_rows.extend(pricing["community_rows"])
+                total_profit += float(pricing["station_profit"])
+                total_subsidy += float(pricing["annual_subsidy"])
+                station_population = sum(float(v) for v in info["population_weight"].values())
+                weighted_satisfaction_sum += float(pricing["avg_satisfaction"]) * station_population
+                weighted_population_sum += station_population
+                min_profit_rate = float(pricing["profit_rate"]) if min_profit_rate is None else min(min_profit_rate, float(pricing["profit_rate"]))
+                max_profit_rate = float(pricing["profit_rate"]) if max_profit_rate is None else max(max_profit_rate, float(pricing["profit_rate"]))
+
+            if feasible:
+                pricing_station_df = pd.DataFrame(station_rows)
+                pricing_service_df = pd.DataFrame(service_rows)
+                pricing_community_df = pd.DataFrame(community_rows)
+                pricing_avg_satisfaction = weighted_satisfaction_sum / weighted_population_sum if weighted_population_sum > 0 else 0.0
+                result = {
+                    "coverage": float(base_result["coverage"]),
+                    "avg_satisfaction": pricing_avg_satisfaction,
+                    "total_profit": total_profit,
+                    "total_subsidy": total_subsidy,
+                    "min_profit_rate": min_profit_rate if min_profit_rate is not None else 0.0,
+                    "max_profit_rate": max_profit_rate if max_profit_rate is not None else 0.0,
+                    "base_result": base_result,
+                    "station_df": pricing_station_df,
+                    "service_df": pricing_service_df,
+                    "community_df": pricing_community_df,
+                }
                 break
 
-        if not feasible:
-            continue
+        if result is None:
+            raise RuntimeError(f"场景 {name} 没有找到满足利润率约束的可行定价方案。")
 
-        # overall metrics
-        pop = q1_solution.load_community_data()[0]
-        pop_map = {row["小区"]: float(row["60+"]) for _, row in pop.iterrows()}
-        numerator = 0.0
-        denom = 0.0
-        for site in sites:
-            for c in station_info[site]["assigned"]:
-                numerator += station_satisfaction.get(site, 0.0) * pop_map.get(c, 0.0)
-                denom += pop_map.get(c, 0.0)
+    save_scenario_outputs(name, result)
+    result.update(
+        {
+            "forecast5": forecast5,
+            "theoretical": theoretical,
+            "actual": actual,
+            "community_population": community_population,
+        }
+    )
+    return result
 
-        avg_satisfaction = numerator / denom if denom else 0.0
-        total_profit = sum(station_annual_profit.values())
 
-        candidate = {
-            "markups": markups,
-            "avg_satisfaction": avg_satisfaction,
-            "total_profit": total_profit,
-            "station_profit": station_annual_profit,
-            "station_satisfaction": station_satisfaction,
+def build_summary(results: dict[str, dict[str, object]]) -> dict[str, object]:
+    summary: dict[str, object] = {}
+    for name, result in results.items():
+        base_result = result["base_result"]
+        summary[name] = {
+            "station_count": int(len(base_result["station_rows"])),
+            "stations": base_result["station_rows"]["站点"].tolist(),
+            "coverage": round(float(result["coverage"]), 6),
+            "avg_satisfaction": round(float(result["avg_satisfaction"]), 6),
+            "total_profit": round(float(result["total_profit"]), 2),
+            "total_subsidy": round(float(result["total_subsidy"]), 2),
+            "min_profit_rate": round(float(result["min_profit_rate"]), 4),
+            "max_profit_rate": round(float(result["max_profit_rate"]), 4),
         }
 
-        if best is None or (candidate["avg_satisfaction"] > best["avg_satisfaction"] or (abs(candidate["avg_satisfaction"]-best["avg_satisfaction"])<1e-6 and candidate["total_profit"]>best["total_profit"])):
-            best = candidate
+    summary["robustness_notes"] = [
+        "人口增长率和失能转移概率变化会直接改变第 5 年需求结构，进而影响站点选址和规模组合。",
+        "日固定运营成本上升会压缩利润率上限，可能迫使方案从大站点转向更小规模或更分散布局。",
+        "预算变化会改变可选站点数量和服务半径覆盖范围，从而影响覆盖率和满意度的平衡。",
+        "服务基准价格、居民消费上限和政府补贴规则的微调都可能让最优定价从可行变为不可行。",
+    ]
+    summary["mitigation"] = [
+        "对关键参数做区间敏感性分析，而不是只看单点结果。",
+        "保留多个备选站点布局和价格方案，保证预算或成本变化时能快速切换。",
+        "对高需求站点优先预留容量冗余，减少利用率波动带来的服务中断风险。",
+        "把补贴和定价分开监控，定期复核利润率是否仍落在 0% 到 8% 的约束区间内。",
+    ]
+    return summary
 
-    return best
 
+def main() -> None:
+    results: dict[str, dict[str, object]] = {}
+    for name, params in SCENARIOS.items():
+        print(f"运行场景：{name}")
+        results[name] = run_scenario(name, params)
 
-def main():
-    station_df, assign_df = load_q2_results()
-    theo = load_q1_theoretical()
-    baseline_prices, service_costs = load_service_baseline_and_costs()
-
-    OUTPUT_DIR.mkdir(exist_ok=True)
-
-    best = evaluate_markups(station_df, assign_df, theo, baseline_prices, service_costs)
-    if best is None:
-        print("未找到满足条件的方案（请调整参数）。")
-        return
-
-    out_rows = []
-    for site, m in best["markups"].items():
-        out_rows.append({"站点": site, "统一markup": m, "站点满意度": best["station_satisfaction"].get(site, 0.0), "年利润(元)": best["station_profit"].get(site, 0.0)})
-    pd.DataFrame(out_rows).to_csv(OUTPUT_DIR / "best_pricing_plan.csv", index=False, encoding="utf-8-sig")
-
-    # per-service pricing
-    svc_rows = []
-    wb = load_workbook(BASE_DIR / "附件2：服务需求数据.xlsx", data_only=True)
-    sheet = wb[wb.sheetnames[1]]
-    services = []
-    for r in range(3, 9):
-        svc = sheet.cell(r, 1).value
-        price = sheet.cell(r, 2).value
-        try:
-            price = float(price)
-        except Exception:
-            price = 0.0
-        services.append((svc, price))
-
-    for site, m in best["markups"].items():
-        for svc, base in services:
-            svc_rows.append({"站点": site, "服务": svc, "基准价": base, "统一markup": m, "标价": round(base * (1 + m), 2)})
-
-    pd.DataFrame(svc_rows).to_csv(OUTPUT_DIR / "best_pricing_per_service.csv", index=False, encoding="utf-8-sig")
-    print("已保存 q4 输出：", OUTPUT_DIR)
+    summary = build_summary(results)
+    with open(OUT_DIR / "sensitivity_summary.json", "w", encoding="utf-8") as file:
+        json.dump(summary, file, ensure_ascii=False, indent=2)
+    print("灵敏度分析完成，汇总已写入 q4_output/sensitivity_summary.json")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,74 @@
+{
+  "baseline": {
+    "station_count": 4,
+    "stations": [
+      "H",
+      "J",
+      "C",
+      "G"
+    ],
+    "coverage": 1.0,
+    "avg_satisfaction": 0.859024,
+    "total_profit": 134181.61,
+    "total_subsidy": 350666.1,
+    "min_profit_rate": 1.9037,
+    "max_profit_rate": 6.8403
+  },
+  "scenario_growth": {
+    "station_count": 4,
+    "stations": [
+      "H",
+      "J",
+      "C",
+      "G"
+    ],
+    "coverage": 1.0,
+    "avg_satisfaction": 0.854927,
+    "total_profit": 78961.13,
+    "total_subsidy": 327393.86,
+    "min_profit_rate": 0.2902,
+    "max_profit_rate": 6.4566
+  },
+  "scenario_cost": {
+    "station_count": 4,
+    "stations": [
+      "H",
+      "J",
+      "C",
+      "G"
+    ],
+    "coverage": 1.0,
+    "avg_satisfaction": 0.842661,
+    "total_profit": 92428.9,
+    "total_subsidy": 347227.22,
+    "min_profit_rate": 0.1214,
+    "max_profit_rate": 6.061
+  },
+  "scenario_budget": {
+    "station_count": 4,
+    "stations": [
+      "H",
+      "J",
+      "C",
+      "G"
+    ],
+    "coverage": 1.0,
+    "avg_satisfaction": 0.859024,
+    "total_profit": 134181.61,
+    "total_subsidy": 350666.1,
+    "min_profit_rate": 1.9037,
+    "max_profit_rate": 6.8403
+  },
+  "robustness_notes": [
+    "人口增长率和失能转移概率变化会直接改变第 5 年需求结构，进而影响站点选址和规模组合。",
+    "日固定运营成本上升会压缩利润率上限，可能迫使方案从大站点转向更小规模或更分散布局。",
+    "预算变化会改变可选站点数量和服务半径覆盖范围，从而影响覆盖率和满意度的平衡。",
+    "服务基准价格、居民消费上限和政府补贴规则的微调都可能让最优定价从可行变为不可行。"
+  ],
+  "mitigation": [
+    "对关键参数做区间敏感性分析，而不是只看单点结果。",
+    "保留多个备选站点布局和价格方案，保证预算或成本变化时能快速切换。",
+    "对高需求站点优先预留容量冗余，减少利用率波动带来的服务中断风险。",
+    "把补贴和定价分开监控，定期复核利润率是否仍落在 0% 到 8% 的约束区间内。"
+  ]
+}

@@ -199,6 +199,7 @@ def evaluate_plan(
         station_utilization: dict[str, float] = {}
         station_effective_monthly: dict[str, float] = {}
         station_annual_profit: dict[str, float] = {}
+        station_annual_fixed: dict[str, float] = {}
         station_community_satisfaction: dict[str, float] = {}
 
         valid = True
@@ -226,7 +227,11 @@ def evaluate_plan(
                     annual_revenue += effective_yearly * float(service_prices[service])
                     annual_direct_cost += effective_yearly * float(service_costs[service])
 
-            annual_fixed_cost = station_plans[site].annual_fixed_cost_yuan + station_plans[site].construction_cost_wan * 10000.0 / 20.0
+            annual_fixed_cost = (
+                station_plans[site].annual_fixed_cost_yuan
+                + station_plans[site].construction_cost_wan * 10000.0 / 20.0
+            )
+            station_annual_fixed[site] = annual_fixed_cost
             station_annual_profit[site] = annual_revenue - annual_direct_cost - annual_fixed_cost
 
         if not valid:
@@ -271,6 +276,17 @@ def evaluate_plan(
                 else 0.0
             )
             total_profit = sum(station_annual_profit.values())
+            total_fixed = sum(station_annual_fixed.values())
+            total_profit_rate = total_profit / total_fixed * 100.0 if total_fixed > 0 else -100.0
+
+            # 严格约束：每站与总体利润率需在 [0%, 8%] 之间
+            if not (0.0 <= total_profit_rate <= 8.0):
+                return None
+            for site in selected_sites:
+                fixed = station_annual_fixed[site]
+                rate = station_annual_profit[site] / fixed * 100.0 if fixed > 0 else -100.0
+                if not (0.0 <= rate <= 8.0):
+                    return None
 
             community_result_rows = []
             for community in community_list:
@@ -311,6 +327,12 @@ def evaluate_plan(
                         "利用率": round(station_utilization[site], 4),
                         "响应满意度S2": station_s2[site],
                         "年度利润(元)": round(station_annual_profit[site], 2),
+                        "利润率(%)": round(
+                            station_annual_profit[site] / station_annual_fixed[site] * 100.0
+                            if station_annual_fixed[site] > 0
+                            else 0.0,
+                            2,
+                        ),
                     }
                 )
 
@@ -318,10 +340,12 @@ def evaluate_plan(
                 "coverage": coverage,
                 "avg_satisfaction": avg_satisfaction,
                 "total_profit": total_profit,
+                "total_fixed": total_fixed,
                 "assignment": assignment,
                 "station_s2": station_s2,
                 "station_utilization": station_utilization,
                 "station_profit": station_annual_profit,
+                "station_fixed": station_annual_fixed,
                 "station_rows": pd.DataFrame(station_result_rows),
                 "community_rows": pd.DataFrame(community_result_rows),
                 "selected_sites": selected_sites,
@@ -433,6 +457,9 @@ def main() -> None:
     print(f"覆盖率：{best['coverage']:.4f}")
     print(f"平均满意度：{best['avg_satisfaction']:.4f}")
     print(f"总年度利润：{best['total_profit']:.2f} 元")
+    if best["total_fixed"] > 0:
+        total_profit_rate = best["total_profit"] / best["total_fixed"] * 100.0
+        print(f"总利润率：{total_profit_rate:.2f} %")
     print()
     print("站点明细：")
     print(best["station_rows"].to_string(index=False))
