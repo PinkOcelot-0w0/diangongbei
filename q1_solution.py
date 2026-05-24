@@ -1,49 +1,18 @@
 from __future__ import annotations
 
-from numbers import Real
 from pathlib import Path
 
 import pandas as pd
 from openpyxl import load_workbook
 
 
-# 第 1 问说明：
-# 1. 附件 1 的第一个工作表给出各小区当前人口结构。
-# 2. 附件 1 的第二个工作表给出转移概率，其中 B3=0.045 表示“自理 -> 半失能”，B4=0.10 表示“半失能 -> 失能”。
-# 3. 附件 2 给出各类老人对不同服务的月均需求次数、服务基准价格和月消费上限。
+
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "q1_output"
 
 
-def read_probability_cell(value: object, label: str) -> float:
-    """
-    读取并校验年度状态转移概率。
-
-    输入：Excel 单元格值和中文字段名。
-    输出：0 到 1 之间的浮点概率。
-    异常：当单元格为空、非数值或超出概率范围时抛出 ValueError。
-    对应需求：REQ-001 问题一人口状态转移预测。
-    文档：docs/requirements_traceability.md#req-001-问题一人口与需求预测。
-    """
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ValueError(f"{label} 必须是 0 到 1 之间的数值，当前值为 {value!r}")
-    probability = float(value)
-    if probability < 0.0 or probability > 1.0:
-        raise ValueError(f"{label} 必须在 0 到 1 之间，当前值为 {probability}")
-    return probability
-
-
 def load_community_data() -> tuple[pd.DataFrame, float, float]:
-    """
-    读取小区基础数据和年度状态转移概率。
-
-    输入：附件1《小区基础数据.xlsx》。
-    输出：小区人口结构表、自理转半失能概率、半失能转失能概率。
-    异常：附件缺失、工作表缺失或概率字段非法时抛出异常。
-    对应需求：REQ-001 问题一人口与需求预测。
-    文档：docs/requirements_traceability.md#req-001-问题一人口与需求预测。
-    """
-    workbook = load_workbook(BASE_DIR / "附件1：小区基础数据.xlsx", data_only=True)
+    workbook = load_workbook(BASE_DIR / "附件1_小区基础数据.xlsx", data_only=True)
     worksheet = workbook[workbook.sheetnames[0]]
     communities = pd.DataFrame(
         list(worksheet.iter_rows(min_row=3, max_row=12, values_only=True)),
@@ -51,14 +20,15 @@ def load_community_data() -> tuple[pd.DataFrame, float, float]:
     )
 
     transition_sheet = workbook[workbook.sheetnames[1]]
-    # 附件 1 第二个工作表给出年度转移概率：B3 为自理转半失能，B4 为半失能转失能。
-    self_to_semi = read_probability_cell(transition_sheet["B3"].value, "自理转半失能概率")
-    semi_to_disabled = read_probability_cell(transition_sheet["B4"].value, "半失能转失能概率")
+    # 这里直接读取题目给出的转移概率：
+    # 自理老人每年有 4.5% 转移为半失能，半失能老人每年有 10% 转移为失能。
+    self_to_semi = 0.045
+    semi_to_disabled = 0.1
     return communities, self_to_semi, semi_to_disabled
 
 
 def load_service_data() -> tuple[pd.DataFrame, dict[str, float], dict[str, float]]:
-    workbook = load_workbook(BASE_DIR / "附件2：服务需求数据.xlsx", data_only=True)
+    workbook = load_workbook(BASE_DIR / "附件2_服务需求数据.xlsx", data_only=True)
 
     demand_sheet = workbook[workbook.sheetnames[0]]
     service_names = [demand_sheet.cell(row, 1).value for row in range(3, 9)]
@@ -92,15 +62,15 @@ def forecast_five_years(
 ) -> list[pd.DataFrame]:
     result = communities.copy()
     yearly_results: list[pd.DataFrame] = []
+    death_rate = 0.05
+    growth_rate = 0.07
     for _ in range(5):
-        # 每年先扣除自然死亡，再叠加 60+ 新增人口；
+        # 每年先考虑转移与死亡，再叠加 60+ 新增人口；
         # 新增人口按题意计入自理老人。
-        new_60_plus = 0.07 * result["60+"]
-        next_self = 0.95 * result["自理"] * (1 - self_to_semi) + new_60_plus
-        next_semi = 0.95 * (
-            result["自理"] * self_to_semi + result["半失能"] * (1 - semi_to_disabled)
-        )
-        next_disabled = 0.95 * (result["半失能"] * semi_to_disabled + result["失能"])
+        totals = result[["自理", "半失能", "失能"]].sum(axis=1)
+        next_self = (1 - death_rate - self_to_semi) * result["自理"] + growth_rate * totals
+        next_semi = (1 - death_rate - semi_to_disabled) * result["半失能"] + self_to_semi * result["自理"]
+        next_disabled = (1 - death_rate) * result["失能"] + semi_to_disabled * result["半失能"]
 
         result[["自理", "半失能", "失能"]] = pd.DataFrame(
             {"自理": next_self, "半失能": next_semi, "失能": next_disabled}
@@ -156,7 +126,7 @@ def build_service_tables(
                         "老人类型": elder_type,
                         "服务项目": service,
                         "消费约束缩放系数": round(scale, 4),
-                        "实际月均需求次数": round(theoretical_demands[service] * scale),
+                        "实际月均需求次数": round(theoretical_demands[service] * scale, 2),
                     }
                 )
 
