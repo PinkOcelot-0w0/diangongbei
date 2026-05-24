@@ -1,1 +1,13 @@
 __pycache__/
+*.py[cod]
+
+# 不提交论文、说明书、协作文档等文档类文件。
+docs/
+*.md
+*.doc
+*.docx
+*.pdf
+*.ppt
+*.pptx
+*.odt
+*.rtf
